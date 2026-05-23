@@ -7,7 +7,7 @@ int wmain( int argc, const wchar_t** argv ) {
 	if ( !Process->AttachMaxPrivileges( argv[ 1 ] ) ) {
 		return 0;
 	}
-	
+
 	Driver->Setup( );
 	Process->Setup( );
 	{

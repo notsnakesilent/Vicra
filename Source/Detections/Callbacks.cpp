@@ -185,7 +185,106 @@ VOID CallbackDetection::Run( const std::shared_ptr< Process >& Process, const st
 		} while ( Current != m_LdrpVectorHandlerList );
 	}
 
-	// TODO: TLS Callbacks
+	PROCESS_BASIC_INFORMATION pbi {};
+	if ( Process->Query(
+		ProcessBasicInformation,
+		&pbi,
+		sizeof( PROCESS_BASIC_INFORMATION )
+	) ) return;
+
+	PEB Peb {};
+	if ( !Memory->Read(
+		pbi.PebBaseAddress,
+		&Peb,
+		sizeof( PEB )
+	) ) return;
+
+	PEB_LDR_DATA Ldr {};
+	if ( !Memory->Read(
+		Peb.Ldr,
+		&Ldr,
+		sizeof( PEB_LDR_DATA )
+	) ) return;
+
+	PLIST_ENTRY Head = &Ldr.InLoadOrderModuleList;
+	PLIST_ENTRY Current = Head->Flink;
+
+	while ( Current != Head )
+	{
+		auto EntryAddress =
+			reinterpret_cast< DWORD64 >( Current ) -
+			offsetof( LDR_DATA_TABLE_ENTRY, InLoadOrderLinks );
+
+		LDR_DATA_TABLE_ENTRY Entry {};
+		if ( !Memory->Read(
+			reinterpret_cast< PVOID >( EntryAddress ),
+			&Entry,
+			sizeof( LDR_DATA_TABLE_ENTRY )
+		) ) break;
+
+		Current = Entry.InLoadOrderLinks.Flink;
+
+		IMAGE_DOS_HEADER DosHeader {};
+		if ( !Memory->Read(
+			Entry.DllBase,
+			&DosHeader,
+			sizeof( IMAGE_DOS_HEADER )
+		) ) continue;
+
+		if ( DosHeader.e_magic != IMAGE_DOS_SIGNATURE )
+			continue;
+
+		auto ModuleBase = reinterpret_cast< PBYTE >( Entry.DllBase );
+
+		IMAGE_NT_HEADERS NtHeader {};
+		if ( !Memory->Read(
+			ModuleBase + DosHeader.e_lfanew,
+			&NtHeader,
+			sizeof( IMAGE_NT_HEADERS )
+		) ) continue;
+
+		if ( NtHeader.Signature != IMAGE_NT_SIGNATURE )
+			continue;
+
+		auto& TlsDirectory = NtHeader.OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_TLS ];
+		if ( TlsDirectory.Size == 0 || TlsDirectory.VirtualAddress == 0 )
+			continue;
+
+		IMAGE_TLS_DIRECTORY Tls {};
+		if ( !Memory->Read(
+			ModuleBase + TlsDirectory.VirtualAddress,
+			&Tls,
+			sizeof( IMAGE_TLS_DIRECTORY )
+		) ) continue;
+
+		if ( !Tls.AddressOfCallBacks )
+			continue;
+
+		auto CallbackArray = Tls.AddressOfCallBacks;
+
+		while ( true ) 
+		{
+			PVOID CallbackAddress = NULL;
+			if ( !Memory->Read(
+				reinterpret_cast< PVOID >( CallbackArray ),
+				&CallbackAddress,
+				sizeof( DWORD64 )
+			) ) break;
+
+			if ( CallbackAddress == 0 )
+				break;
+
+			m_ReportData.Populate( ReportValue {
+				std::format( "TLS Callback @ {}", Memory->ToString( CallbackAddress ) ),
+
+				EReportSeverity::Severe,
+				EReportFlags::AvoidCodeInjection
+			} );
+
+			CallbackArray += sizeof( ULONGLONG );
+		}
+	} 
+
 	// TODO: Window Callbacks
 }
 }

@@ -62,5 +62,31 @@ VOID PolicyDetection::Run( const std::shared_ptr< Process >& Process, const std:
 			EReportSeverity::Information,
 			EReportFlags::AvoidCodeInjection
 		} );
+
+	DWORD DebugPort = 0;
+	if ( Process->Query(
+		ProcessDebugPort,
+		&DebugPort,
+		sizeof( DWORD )
+	) && DebugPort ) 
+		m_ReportData.Populate( ReportValue {
+			"Possible self-debugging detected (ProcessDebugPort != 0)",
+
+			EReportSeverity::Severe,
+			EReportFlags::AvoidDebugging
+		} );
+
+	HANDLE DebugObject = NULL;
+	if ( Process->Query(
+		ProcessDebugObjectHandle,
+		&DebugObject,
+		sizeof( HANDLE )
+	) && DebugObject )
+		m_ReportData.Populate( ReportValue {
+			"Possible self-debugging detected (ProcessDebugObjectHandle != 0)",
+
+			EReportSeverity::Severe,
+			EReportFlags::AvoidDebugging
+		} );
 }
 }
