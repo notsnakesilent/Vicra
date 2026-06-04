@@ -11,6 +11,31 @@ Vicra aims to provide automated, extensible detection of Windows process securit
 - Anti-debugging mechanisms
 - Callback-based hooks and notification lists
 
+## Exact Detection List
+
+# Callbacks:
+- Vectored Exception Handler 
+- Loader Notifications
+- Thread Local Storage
+
+# Memory:
+- Dynamically allocated syscall stubs
+- Invalid CR3 (Regards EasyAntiCheat)
+- Inline Hooks
+- EAT Hooks
+
+# Objects:
+- Thread Flags (ThreadHideFromDebugger, ThreadBypassProcessFreeze)
+- Devices
+- Huge file backed sections 
+- Job's
+
+# Policies:
+- Process Flags (VadTrackingDisabled, SystemProcess, DisallowUserTerminate)
+- Process Protection
+- Signature Enforcement Policy
+- Debug Related
+
 ## Usage
 
 ```
