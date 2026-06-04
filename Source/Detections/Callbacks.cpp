@@ -246,43 +246,92 @@ VOID CallbackDetection::Run( const std::shared_ptr< Process >& Process, const st
 		if ( NtHeader.Signature != IMAGE_NT_SIGNATURE )
 			continue;
 
+		auto ModuleStart = ModuleBase;
+		auto ModuleEnd = ModuleBase + NtHeader.OptionalHeader.SizeOfImage;
+
 		auto& TlsDirectory = NtHeader.OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_TLS ];
-		if ( TlsDirectory.Size == 0 || TlsDirectory.VirtualAddress == 0 )
-			continue;
-
-		IMAGE_TLS_DIRECTORY Tls {};
-		if ( !Memory->Read(
-			ModuleBase + TlsDirectory.VirtualAddress,
-			&Tls,
-			sizeof( IMAGE_TLS_DIRECTORY )
-		) ) continue;
-
-		if ( !Tls.AddressOfCallBacks )
-			continue;
-
-		auto CallbackArray = Tls.AddressOfCallBacks;
-
-		while ( true ) 
+		if ( TlsDirectory.Size > 0 && TlsDirectory.VirtualAddress > 0 )
 		{
-			PVOID CallbackAddress = NULL;
+			IMAGE_TLS_DIRECTORY Tls {};
 			if ( !Memory->Read(
-				reinterpret_cast< PVOID >( CallbackArray ),
-				&CallbackAddress,
-				sizeof( DWORD64 )
-			) ) break;
+				ModuleBase + TlsDirectory.VirtualAddress,
+				&Tls,
+				sizeof( IMAGE_TLS_DIRECTORY )
+			) ) continue;
 
-			if ( CallbackAddress == 0 )
-				break;
+			if ( !Tls.AddressOfCallBacks )
+				continue;
 
-			m_ReportData.Populate( ReportValue {
-				std::format( "TLS Callback @ {}", Memory->ToString( CallbackAddress ) ),
+			auto CallbackArray = Tls.AddressOfCallBacks;
 
-				EReportSeverity::Severe,
-				EReportFlags::AvoidCodeInjection
-			} );
+			while ( true )
+			{
+				PVOID CallbackAddress = NULL;
+				if ( !Memory->Read(
+					reinterpret_cast< PVOID >( CallbackArray ),
+					&CallbackAddress,
+					sizeof( DWORD64 )
+				) ) break;
 
-			CallbackArray += sizeof( ULONGLONG );
+				if ( CallbackAddress == 0 )
+					break;
+
+				m_ReportData.Populate( ReportValue {
+					std::format( "TLS Callback @ {}", Memory->ToString( CallbackAddress ) ),
+
+					EReportSeverity::Severe,
+					EReportFlags::AvoidCodeInjection
+					} );
+
+				CallbackArray += sizeof( ULONGLONG );
+			}
 		}
+
+		/*
+			EAT Hooks
+		*/
+		auto& ExportDirectory = NtHeader.OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_EXPORT ];
+		if ( ExportDirectory.Size > 0 && ExportDirectory.VirtualAddress > 0 )
+		{
+			IMAGE_EXPORT_DIRECTORY Export {};
+			if ( !Memory->Read(
+				ModuleBase + ExportDirectory.VirtualAddress,
+				&Export,
+				sizeof( IMAGE_EXPORT_DIRECTORY )
+			) ) continue;
+
+			std::vector< DWORD > NamesBuffer = {};
+			std::vector< DWORD > FunctionBuffer = { };
+			std::vector< WORD > OrdinalBuffer = { };
+
+			Memory->Read( ModuleBase + Export.AddressOfNames, NamesBuffer.data( ), Export.NumberOfNames * sizeof( DWORD ) );
+			Memory->Read( ModuleBase + Export.AddressOfFunctions, FunctionBuffer.data( ), Export.NumberOfFunctions * sizeof( DWORD ) );
+			Memory->Read( ModuleBase + Export.AddressOfNameOrdinals, OrdinalBuffer.data( ), Export.NumberOfNames * sizeof( WORD ) );
+
+			for ( DWORD i = 0; i < Export.NumberOfNames; i++ )
+			{
+				WORD Ordinal = OrdinalBuffer[ i ];
+
+				DWORD FunctionRVA = FunctionBuffer[ Ordinal ];
+				PBYTE FunctionAddress = ModuleBase + FunctionRVA;
+
+				if ( FunctionAddress > ModuleStart && FunctionAddress < ModuleEnd )
+					continue;
+
+				char NameBuffer[ 256 ];
+				Memory->Read( ModuleBase + NamesBuffer[ i ], NameBuffer, sizeof( NameBuffer ) );
+
+				m_ReportData.Populate( ReportValue {
+					std::format( "Export: {} appears to be hooked (points to: {})", NameBuffer, Memory->ToString( FunctionAddress ) ),
+					EReportSeverity::Severe,
+					EReportFlags::None
+				} );
+			}
+		}
+
+		/*
+			TODO: IAT Hooks
+		*/
 	} 
 
 	// TODO: Window Callbacks
