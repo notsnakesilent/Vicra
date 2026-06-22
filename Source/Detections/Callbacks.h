@@ -7,9 +7,14 @@ private:
 		Dummy callbacks
 	*/
 
-	static VOID CALLBACK DummyCallback( ULONG NotificationReason, PLDR_DLL_NOTIFICATION_DATA NotificationData, PVOID Context )
-	{
-		return;
+	static VOID NTAPI DummyLdrDllNotification(
+		ULONG NotificationReason,
+		PCLDR_DLL_NOTIFICATION_DATA NotificationData,
+		PVOID Context
+	) {
+		UNREFERENCED_PARAMETER( NotificationReason );
+		UNREFERENCED_PARAMETER( NotificationData );
+		UNREFERENCED_PARAMETER( Context );
 	}
 	static LONG CALLBACK DummyVEHCallback( PEXCEPTION_POINTERS ExceptionInfo ) {
 		return NULL;
